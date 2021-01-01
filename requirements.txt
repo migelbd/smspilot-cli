@@ -14,8 +14,8 @@ pyperclip==1.8.1
 pyreadline==2.1
 questionary==1.9.0
 requests==2.25.1
-rich==9.5.1
-sms-pilot-py==0.2
+rich==9.6.1
+sms-pilot-py==0.3
 typing-extensions==3.7.4.3
 urllib3==1.26.2
 wcwidth==0.2.5

@@ -1,16 +1,20 @@
 import os
-
+from typing import KeysView
+from rich import print, pretty
 import click
 import profig
 from rich.console import Console
 from sms_pilot import SmsPilot
+from sms_pilot.exception import SmsPilotAPIError
 from sms_pilot.objects import Message
 
 from smspilot.tables import get_table_for_result
 from smspilot.utils import get_row_data
 from . import __version__
 
+
 console = Console()
+pretty.install(console)
 HOME_PATH = os.getenv('USERPROFILE')
 CFG_PATH = os.path.join(HOME_PATH, '.smspilot.cfg')
 cfg = profig.Config(CFG_PATH, encoding='utf-8')
@@ -86,6 +90,55 @@ def get_balance(ctx, as_count, raw_response):
         click.echo(balance)
     else:
         click.echo('Баланс: %s' % balance)
+
+
+@cli.command('auth', help='Авторизация с помощью API ключа smspilot.ru')
+@click.argument('api_key')
+@click.pass_context
+def auth(ctx, api_key):
+    try:
+        api: SmsPilot = SmsPilot(api_key, default_sender=cfg['api.default_sender'])
+        user_info = api.user_info()
+        print('[b]Авторизация успешна[/b]')
+        print('Имя', user_info.name)
+        print('Баланс', user_info.balance)
+        cfg.update({'api.key': str(api_key).strip(), 'api.default_sender': user_info.default_sender})
+        cfg.sync()
+        print('[b]Ключ сохранен в настройках[/b]')
+        print(cfg.sources)
+    except SmsPilotAPIError as e:
+        console.print(str(e), style='bold red')
+
+
+@cli.group('config', invoke_without_command=True)
+@click.pass_context
+def config(ctx):
+    if ctx.invoked_subcommand is None:
+        print('[b]Текущие настройки[/b]')
+        for cfg_key, cfg_value in cfg.as_dict(flat=True).items():
+            print('[b]%s[/b]: %s' % (cfg_key, cfg_value))
+
+
+@config.command('reset')
+def reset_config():
+    cfg.reset(clean=False)
+    cfg.sync()
+    print('[b]Настройки установлены по умолчанию[/b]')
+
+
+@config.command('set')
+@click.argument('param_key')
+@click.argument('param_value')
+def set_config(param_key=None, param_value=None):
+    keys_v = list(cfg.keys())
+    if param_key not in keys_v:
+        console.print('Не верный параметр %s' % param_key, style='bold red')
+        return
+
+    cfg.update({param_key: param_value})
+    cfg.sync()
+    print(cfg.as_dict())
+    console.print('[b]Настройки сохранены[/b]', style='green')
 
 
 def main():
