@@ -12,6 +12,8 @@ from smspilot.tables import get_table_for_result
 from smspilot.utils import get_row_data
 from . import __version__
 
+ERROR_STYLE = 'bold red'
+SUCCESS_STYLE = 'bold green'
 
 console = Console()
 pretty.install(console)
@@ -23,39 +25,53 @@ cfg.init('api.default_sender', 'INFORM')
 
 
 @click.group('SmsPilotCli', help=f'SmsPilot CLI version {".".join(map(str, __version__))}')
+@click.option('-v', '--verbose', 'verbose', help='Подробный ответ', is_flag=True)
+@click.option('-t', '--test', 'test', help='Тестовая отправка (без передачи оператору)', is_flag=True)
+@click.option('--debug', 'debug', help='Email для DEBUG')
 @click.pass_context
-def cli(ctx):
+def cli(ctx, verbose, debug=None, test=None):
     ctx.ensure_object(dict)
-    ctx.obj['api'] = SmsPilot(cfg['api.key'], default_sender=cfg['api.default_sender'])
+    ctx.obj['api'] = SmsPilot(cfg['api.key'], default_sender=cfg['api.default_sender'], debug=debug, test=test)
+    ctx.obj['verbose'] = verbose
+    if test:
+        console.print('[i]Тестовый режим[/i]', style='blue')
+    if debug:
+        console.print('[i]DEBUG режим: %s[/i]' % debug, style='blue')
 
 
-@cli.command('send', help='Send message')
+@cli.command('send', help='Отправить сообщение')
 @click.argument('phone')
 @click.argument('message')
 @click.option('-s', '--sender', 'sender', help='Sender. If not set, using default')
 @click.pass_context
 def send_message(ctx, phone, message, sender):
     api: SmsPilot = ctx.obj['api']
+    is_verbose = ctx.obj['verbose']
+    try:
+        response = api.send_message(
+            to=phone,
+            text=message,
+            sender=sender
+        )
+        if is_verbose:
+            fields_data = (
+                'server_id',
+                'get_status_verbose',
+                'phone',
+                'sender',
+                'price',
+            )
+            tb = get_table_for_result(response.cost)
 
-    response = api.send_message(
-        to=phone,
-        text=message,
-        sender=sender
-    )
-    fields_data = (
-        'id',
-        'get_status_verbose',
-        'to',
-        'sender',
-        'price',
-    )
-    tb = get_table_for_result(response.cost)
-    for msg in response.raw_send:
-        tb.add_row(*get_row_data(msg, fields_data))
-    console.print(tb)
+            tb.add_row(*get_row_data(response, fields_data))
+            console.print(tb)
+        else:
+            console.print('Сообщение передано', response.server_id)
+    except SmsPilotAPIError as e:
+        console.print(e, style=ERROR_STYLE)
 
 
-@cli.command('sends', help='Send message')
+@cli.command('sends', help='Отправить сообщения (список)')
 @click.argument('input', type=click.File('rb'))
 @click.pass_context
 def send_messages(ctx, input):
@@ -79,7 +95,7 @@ def send_messages(ctx, input):
     # console.print(tb)
 
 
-@cli.command('balance', help='Get balance')
+@cli.command('balance', help='Баланс')
 @click.option('-c', '--count', 'as_count', help='As count', is_flag=True, default=False)
 @click.option('--raw', 'raw_response', help='Raw response', is_flag=True, default=False)
 @click.pass_context
@@ -110,7 +126,7 @@ def auth(ctx, api_key):
         console.print(str(e), style='bold red')
 
 
-@cli.group('config', invoke_without_command=True)
+@cli.group('config', invoke_without_command=True, help='Настройки')
 @click.pass_context
 def config(ctx):
     if ctx.invoked_subcommand is None:
@@ -119,14 +135,14 @@ def config(ctx):
             print('[b]%s[/b]: %s' % (cfg_key, cfg_value))
 
 
-@config.command('reset')
+@config.command('reset', help='Сбросить настройки')
 def reset_config():
     cfg.reset(clean=False)
     cfg.sync()
     print('[b]Настройки установлены по умолчанию[/b]')
 
 
-@config.command('set')
+@config.command('set', help='Установить настройки')
 @click.argument('param_key')
 @click.argument('param_value')
 def set_config(param_key=None, param_value=None):
